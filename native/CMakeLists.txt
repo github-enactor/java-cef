@@ -62,6 +62,10 @@ set(JCEF_SRCS
   CefCallback_N.h
   CefRequestContext_N.cpp
   CefRequestContext_N.h
+  CefResourceReadCallback_N.cpp
+  CefResourceReadCallback_N.h
+  CefResourceSkipCallback_N.cpp
+  CefResourceSkipCallback_N.h
   CefResponse_N.cpp
   CefResponse_N.h
   CefSchemeRegistrar_N.cpp
@@ -313,11 +317,6 @@ if(OS_MAC)
   set(EXECUTABLE_NAME "${JCEF_APP_NAME}")
   set(PRODUCT_NAME "${JCEF_APP_NAME}")
 
-  if(USE_SANDBOX)
-    # Logical target used to link the cef_sandbox library.
-    ADD_LOGICAL_TARGET("cef_sandbox_lib" "${CEF_SANDBOX_LIB_DEBUG}" "${CEF_SANDBOX_LIB_RELEASE}")
-  endif()
-
   # JCEF library target.
   add_library(${JCEF_TARGET} SHARED ${JCEF_RESOURCES_SRCS} ${JCEF_SRCS})
   SET_EXECUTABLE_TARGET_PROPERTIES(${JCEF_TARGET})
@@ -402,9 +401,6 @@ if(OS_MAC)
             # XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "YES"
             # XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--deep"
     )
-    if(USE_SANDBOX)
-      target_link_libraries(${_helper_target} cef_sandbox_lib)
-    endif()
 
     # Add the Helper as a dependency of the main executable target.
     add_dependencies(${JCEF_TARGET} "${_helper_target}")
@@ -439,6 +435,7 @@ if(OS_WINDOWS)
   add_dependencies(${JCEF_TARGET} libcef_dll_wrapper ${JCEF_HELPER_TARGET})
   target_link_libraries(${JCEF_TARGET} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${JNI_LIBRARIES})
   target_include_directories(${JCEF_TARGET} PUBLIC ${JNI_INCLUDE_DIRS})
+  target_compile_options(${JCEF_TARGET} PRIVATE "-Wno-error")
 
   # Compile flags specific to the JCEF library target.
   # USING_JAVA          = Add the USING_JAVA define.

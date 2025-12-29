@@ -1,0 +1,1674 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 79a0a26..d98e7c9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -130,7 +130,7 @@ set_property(GLOBAL PROPERTY OS_FOLDERS ON)
+ 
+ # Specify the CEF distribution version.
+ if(NOT DEFINED CEF_VERSION)
+-  set(CEF_VERSION "135.0.20+ge7de5c3+chromium-135.0.7049.85")
++  set(CEF_VERSION "141.0.10+g1d65b0d+chromium-141.0.7390.123")
+ endif()
+ 
+ # Determine the platform.
+diff --git a/java/org/cef/CefSettings.java b/java/org/cef/CefSettings.java
+index 83bb1fc..a08ff03 100644
+--- a/java/org/cef/CefSettings.java
++++ b/java/org/cef/CefSettings.java
+@@ -219,6 +219,22 @@ public class CefSettings {
+      */
+     public int remote_debugging_port = 0;
+ 
++    /**
++         * Specify an ID to enable Chrome policy management via Platform and OS-user
++         * policies. On Windows, this is a registry key like
++         * "SOFTWARE\\Policies\\Google\\Chrome". On MacOS, this is a bundle ID like
++         * "com.google.Chrome". On Linux, this is an absolute directory path like
++         * "/etc/opt/chrome/policies". Only supported with Chrome style. See
++         * https://support.google.com/chrome/a/answer/9037717 for details.
++         *
++         * Chrome Browser Cloud Management integration, when enabled via the
++         * "enable-chrome-browser-cloud-management" command-line flag, will also use
++         * the specified ID. See https://support.google.com/chrome/a/answer/9116814
++         * for details.
++     */
++    public String chrome_policy_id;
++
++
+     /**
+      * The number of stack trace frames to capture for uncaught exceptions.
+      * Specify a positive value to enable the CefV8ContextHandler::
+@@ -269,6 +285,7 @@ public class CefSettings {
+         tmp.javascript_flags = javascript_flags;
+         tmp.resources_dir_path = resources_dir_path;
+         tmp.locales_dir_path = locales_dir_path;
++        tmp.chrome_policy_id = chrome_policy_id;
+         tmp.remote_debugging_port = remote_debugging_port;
+         tmp.uncaught_exception_stack_size = uncaught_exception_stack_size;
+         if (background_color != null) tmp.background_color = background_color.clone();
+diff --git a/java/org/cef/browser/CefBrowser.java b/java/org/cef/browser/CefBrowser.java
+index 96f8e1a..29a6b0d 100644
+--- a/java/org/cef/browser/CefBrowser.java
++++ b/java/org/cef/browser/CefBrowser.java
+@@ -49,6 +49,14 @@ public interface CefBrowser {
+      */
+     public CefRenderHandler getRenderHandler();
+ 
++    /**
++         * Retrieves the request context used by this browser instance. May be the
++         * global request context if this browser does not have a specific request
++         * context.
++     */
++    public CefRequestContext getRequestContext();
++
++
+     /**
+      * Get an implementation of CefWindowHandler if any.
+      * @return An instance of CefWindowHandler or null.
+diff --git a/java/org/cef/browser/CefBrowser_N.java b/java/org/cef/browser/CefBrowser_N.java
+index e46327f..c89e296 100644
+--- a/java/org/cef/browser/CefBrowser_N.java
++++ b/java/org/cef/browser/CefBrowser_N.java
+@@ -68,8 +68,9 @@ abstract class CefBrowser_N extends CefNativeAdapter implements CefBrowser {
+         return url_;
+     }
+ 
+-    protected CefRequestContext getRequestContext() {
+-        return request_context_;
++    @Override
++    public CefRequestContext getRequestContext() {
++        return request_context_ != null ? request_context_ : CefRequestContext.getGlobalContext();
+     }
+ 
+     protected CefBrowser_N getParentBrowser() {
+diff --git a/java/org/cef/browser/CefRequestContext.java b/java/org/cef/browser/CefRequestContext.java
+index 26fa66a..f6998eb 100644
+--- a/java/org/cef/browser/CefRequestContext.java
++++ b/java/org/cef/browser/CefRequestContext.java
+@@ -6,6 +6,9 @@ package org.cef.browser;
+ 
+ import org.cef.handler.CefRequestContextHandler;
+ 
++import java.util.HashMap;
++import java.util.Map;
++
+ /**
+  * A request context provides request handling for a set of related browser
+  * objects. A request context is specified when creating a new browser object
+@@ -50,4 +53,48 @@ public abstract class CefRequestContext {
+      * Returns the handler for this context if any.
+      */
+     public abstract CefRequestContextHandler getHandler();
++
++        /**
++     * Returns true if a preference with the specified |name| exists.
++     * <p>
++     * This method must be called on the browser process UI thread, otherwise it will always return
++     * false. It is easiest to ensure the correct calling thread by using a callback method invoked
++     * by the browser process UI thread, such as CefLifeSpanHandler.onAfterCreated(CefBrowser), to
++     * configure the preferences.
++     */
++    public abstract boolean hasPreference(String name);
++
++    /**
++     * Returns the value for the preference with the specified |name|. Returns
++     * NULL if the preference does not exist.
++     * This method must be called on the browser process UI thread, otherwise it will always return
++     * null.
++     */
++    public abstract Object getPreference(String name);
++
++    /**
++     * Returns all preferences as a dictionary. If |includeDefaults| is true then
++     * preferences currently at their default value will be included. The returned
++     * object can be modified but modifications will not persist. This method must
++     * be called on the browser process UI thread, otherwise it will always return null.
++     */
++    public abstract Map<String, Object> getAllPreferences(boolean includeDefaults);
++
++    /**
++     * Returns true if the preference with the specified |name| can be modified
++     * using setPreference. As one example preferences set via the command-line
++     * usually cannot be modified. This method must be called on the browser
++     * process UI thread, otherwise it will always return false.
++     */
++    public abstract boolean canSetPreference(String name);
++
++    /**
++     * Set the |value| associated with preference |name|. Returns null if the
++     * value is set successfully, an error string otherwise. If |value| is NULL the
++     * preference will be restored to its default value. If setting the preference
++     * fails then a detailed description of the problem will be returned.
++     * This method must be called on the browser process UI thread, otherwise it will always return
++     * an error string.
++     */
++    public abstract String setPreference(String name, Object value);
+ }
+diff --git a/java/org/cef/browser/CefRequestContext_N.java b/java/org/cef/browser/CefRequestContext_N.java
+index 622a9ab..eafdf01 100644
+--- a/java/org/cef/browser/CefRequestContext_N.java
++++ b/java/org/cef/browser/CefRequestContext_N.java
+@@ -6,6 +6,10 @@ package org.cef.browser;
+ 
+ import org.cef.callback.CefNative;
+ import org.cef.handler.CefRequestContextHandler;
++import org.cef.misc.StringRef;
++
++import java.util.HashMap;
++import java.util.Map;
+ 
+ class CefRequestContext_N extends CefRequestContext implements CefNative {
+     // Used internally to store a pointer to the CEF object.
+@@ -73,6 +77,55 @@ class CefRequestContext_N extends CefRequestContext implements CefNative {
+         return false;
+     }
+ 
++    @Override
++    public boolean hasPreference(String name) {
++        try {
++            return N_HasPreference(name);
++        } catch (UnsatisfiedLinkError ule) {
++            ule.printStackTrace();
++        }
++        return false;
++    }
++
++    @Override
++    public Object getPreference(String name) {
++        try {
++            return N_GetPreference(name);
++        } catch (UnsatisfiedLinkError ule) {
++            ule.printStackTrace();
++        }
++        return null;
++    }
++
++    @Override
++    public Map<String, Object> getAllPreferences(boolean includeDefaults) {
++        try {
++            return N_GetAllPreferences(includeDefaults);
++        } catch (UnsatisfiedLinkError ule) {
++            ule.printStackTrace();
++        }
++        return new HashMap<String, Object>();
++    }
++
++    @Override
++    public boolean canSetPreference(String name) {
++        try {
++            return N_CanSetPreference(name);
++        } catch (UnsatisfiedLinkError ule) {
++            ule.printStackTrace();
++        }
++        return false;
++    }
++
++    @Override
++    public String setPreference(String name, Object value) {
++        try {
++            return N_SetPreference(name, value);
++        } catch (UnsatisfiedLinkError ule) {
++            ule.printStackTrace();
++            return ule.getMessage();
++        }
++    }
+     @Override
+     public CefRequestContextHandler getHandler() {
+         return handler;
+@@ -83,4 +136,13 @@ class CefRequestContext_N extends CefRequestContext implements CefNative {
+             CefRequestContextHandler handler);
+     private final native boolean N_IsGlobal();
+     private final native void N_CefRequestContext_DTOR();
++
++    // -------------------------------------------------------------------------
++    // ADDED: Missing native declarations to fix compilation error
++    // -------------------------------------------------------------------------
++    private final native boolean N_HasPreference(String name);
++    private final native Object N_GetPreference(String name);
++    private final native Map<String, Object> N_GetAllPreferences(boolean includeDefaults);
++    private final native boolean N_CanSetPreference(String name);
++    private final native String N_SetPreference(String name, Object value);
+ }
+diff --git a/java/org/cef/callback/CefDragData.java b/java/org/cef/callback/CefDragData.java
+index 0d13029..25a5547 100644
+--- a/java/org/cef/callback/CefDragData.java
++++ b/java/org/cef/callback/CefDragData.java
+@@ -127,6 +127,12 @@ public abstract class CefDragData {
+      */
+     public abstract boolean getFileNames(Vector<String> names);
+ 
++    /**
++     * Retrieve the list of file paths that are being dragged into the browser
++     * window.
++     */
++    public abstract boolean getFilePaths(Vector<String> paths);
++
+     /**
+      * Set the link URL that is being dragged.
+      * @param url The link URL to be set.
+diff --git a/java/org/cef/callback/CefDragData_N.java b/java/org/cef/callback/CefDragData_N.java
+index 9f6e0fe..e56867d 100644
+--- a/java/org/cef/callback/CefDragData_N.java
++++ b/java/org/cef/callback/CefDragData_N.java
+@@ -179,6 +179,16 @@ class CefDragData_N extends CefDragData implements CefNative {
+         return false;
+     }
+ 
++    @Override
++    public boolean getFilePaths(Vector<String> paths) {
++        try {
++            return N_GetFilePaths(N_CefHandle, paths);
++        } catch (UnsatisfiedLinkError ule) {
++            ule.printStackTrace();
++        }
++        return false;
++    }
++
+     public void setLinkURL(String url) {
+         try {
+             N_SetLinkURL(N_CefHandle, url);
+@@ -259,6 +269,7 @@ class CefDragData_N extends CefDragData implements CefNative {
+     private final native int N_GetFileContents(long self, OutputStream writer);
+     private final native String N_GetFileName(long self);
+     private final native boolean N_GetFileNames(long self, Vector<String> names);
++    private final native boolean N_GetFilePaths(long self, Vector<String> paths);
+     private final native void N_SetLinkURL(long self, String url);
+     private final native void N_SetLinkTitle(long self, String title);
+     private final native void N_SetLinkMetadata(long self, String data);
+diff --git a/java/org/cef/handler/CefDialogHandler.java b/java/org/cef/handler/CefDialogHandler.java
+index 12ffdea..dffc6b1 100644
+--- a/java/org/cef/handler/CefDialogHandler.java
++++ b/java/org/cef/handler/CefDialogHandler.java
+@@ -20,6 +20,7 @@ public interface CefDialogHandler {
+     enum FileDialogMode {
+         FILE_DIALOG_OPEN, //!< Requires that the file exists before allowing the user to pick it.
+         FILE_DIALOG_OPEN_MULTIPLE, //!< Like Open, but allows picking multiple files to open.
++        FILE_DIALOG_OPEN_FOLDER, 
+         FILE_DIALOG_SAVE //!< Allows picking a nonexistent file, and prompts to overwrite if the
+                          //! file already exists.
+     }
+diff --git a/java/org/cef/handler/CefResourceHandler.java b/java/org/cef/handler/CefResourceHandler.java
+index 72f9f30..8574c70 100644
+--- a/java/org/cef/handler/CefResourceHandler.java
++++ b/java/org/cef/handler/CefResourceHandler.java
+@@ -5,15 +5,21 @@
+ package org.cef.handler;
+ 
+ import org.cef.callback.CefCallback;
++import org.cef.callback.CefResourceReadCallback;
++import org.cef.callback.CefResourceSkipCallback;
++import org.cef.misc.BoolRef;
+ import org.cef.misc.IntRef;
++import org.cef.misc.LongRef;
+ import org.cef.misc.StringRef;
+ import org.cef.network.CefCookie;
+ import org.cef.network.CefRequest;
+ import org.cef.network.CefResponse;
+ 
+ /**
+- * Implement this interface to handle custom resource requests. The methods of
+- * this class will always be called on the IO thread.
++ * Implement this interface to handle custom resource requests. This interface is a "new" API and an
++ * old API in one: the deprecated methods are part of the old API. The new API allows for parallel
++ * processing of requests, because it does not channel all reads through a dedicated IO thread, and
++ * it allows for skipping of bytes as part of handling Range requests.
+  */
+ public interface CefResourceHandler {
+     /**
+@@ -23,9 +29,22 @@ public interface CefResourceHandler {
+      * @param callback Callback to continue or cancel the request.
+      * @return True to handle the request and call CefCallback.Continue() once the response header
+      *         information is available.
++     * * @deprecated Use open() instead
+      */
+     boolean processRequest(CefRequest request, CefCallback callback);
+ 
++    /**
++     * Open the response stream. This and related (getResponseHeaders, read, skip) methods will be
++     * called in sequence but not from a dedicated thread. <p> For backwards compatibility set
++     * |handleRequest| to false and return false and the processRequest() method will be called.
++     * @param request The request itself. Cannot be modified in this callback. Instance only valid
++     *         within the scope of this method.
++     * @param handleRequest Set to true to handle/cancel the request immediately
++     * @param callback Callback to continue or cancel the request at a later time
++     * @return True to handle the request
++     */
++    boolean open(CefRequest request, BoolRef handleRequest, CefCallback callback);
++
+     /**
+      * Retrieve response header information. If the response length is not known set
+      * |responseLength| to -1 and readResponse() will be called until it returns false. If the
+@@ -49,9 +68,42 @@ public interface CefResourceHandler {
+      * @param bytesRead Number of bytes written to the buffer.
+      * @param callback Callback to execute if data will be available asynchronously.
+      * @return True if more data is or will be available.
++     * * @deprecated Use read() instead
+      */
+     boolean readResponse(byte[] dataOut, int bytesToRead, IntRef bytesRead, CefCallback callback);
+ 
++        /**
++     * Read response data. If data is available immediately copy up to |bytesToRead| bytes into
++     * |dataOut|, set |bytesRead| to the number of bytes copied, and return true. To read the data
++     * at a later time store |dataOut|, set |bytesRead| to 0, return true and call the callback when
++     * the data is available. To indicate response completion set |bytesRead| to 0 and return false.
++     * To indicate failure set |bytesRead| to <0 (e.g. -2 for ERR_FAILED) and return false. <p> For
++     * backwards compatibility set |bytesRead| to -1 and return false and the readResponse() method
++     * will be called.
++     * @param dataOut Write data to this buffer. Buffer remains valid until either an immediate
++     *         response is delivered (return true) or the callback is called later when data is
++     *         available (return false).
++     * @param bytesToRead Size of the buffer.
++     * @param bytesRead Number of bytes written to the buffer.
++     * @param callback Callback to execute if data will be available asynchronously.
++     * @return True if more data is or will be available.
++     */
++    boolean read(
++            byte[] dataOut, int bytesToRead, IntRef bytesRead, CefResourceReadCallback callback);
++
++    /**
++     * Skip response data when requested by a Range header. Skip over and discard |bytesToSkip|
++     * bytes of response data. If data is available immediately set |bytesSkipped| to the number of
++     * bytes skipped and return true. To read the data at a later time set |bytesSkipped| to 0,
++     * return true and execute |callback| when the data is available. To indicate failure set
++     * |bytesSkipped| to < 0 (e.g. -2 for ERR_FAILED) and return false.
++     * @param bytesToSkip Number of bytes to skip.
++     * @param bytesSkipped Number of bytes skipped.
++     * @param callback Callback to execute if data will be skipped asynchronously.
++     */
++    boolean skip(long bytesToSkip, LongRef bytesSkipped, CefResourceSkipCallback callback);
++
++
+     /**
+      * Request processing has been canceled.
+      */
+diff --git a/java/org/cef/handler/CefResourceHandlerAdapter.java b/java/org/cef/handler/CefResourceHandlerAdapter.java
+index 9458bb2..8e6935e 100644
+--- a/java/org/cef/handler/CefResourceHandlerAdapter.java
++++ b/java/org/cef/handler/CefResourceHandlerAdapter.java
+@@ -6,6 +6,10 @@ package org.cef.handler;
+ 
+ import org.cef.callback.CefCallback;
+ import org.cef.misc.IntRef;
++import org.cef.callback.CefResourceReadCallback;
++import org.cef.callback.CefResourceSkipCallback;
++import org.cef.misc.BoolRef;
++import org.cef.misc.LongRef;
+ import org.cef.misc.StringRef;
+ import org.cef.network.CefCookie;
+ import org.cef.network.CefRequest;
+@@ -22,6 +26,13 @@ public abstract class CefResourceHandlerAdapter implements CefResourceHandler {
+         return false;
+     }
+ 
++    @Override
++    public boolean open(CefRequest request, BoolRef handleRequest, CefCallback callback) {
++        // Enables backwards compatibility by default by calling processRequest.
++        handleRequest.set(false);
++        return false;
++    }
++
+     @Override
+     public void getResponseHeaders(
+             CefResponse response, IntRef responseLength, StringRef redirectUrl) {}
+@@ -32,6 +43,20 @@ public abstract class CefResourceHandlerAdapter implements CefResourceHandler {
+         return false;
+     }
+ 
++    @Override
++    public boolean read(
++            byte[] dataOut, int bytesToRead, IntRef bytesRead, CefResourceReadCallback callback) {
++        // Enables backwards compatibility by default by calling readResponse.
++        bytesRead.set(-1);
++        return false;
++    }
++
++    @Override
++    public boolean skip(long bytesToSkip, LongRef bytesSkipped, CefResourceSkipCallback callback) {
++        bytesSkipped.set(-2);
++        return false;
++    }
++
+     @Override
+     public void cancel() {}
+ }
+diff --git a/java/org/cef/network/CefPostDataElement.java b/java/org/cef/network/CefPostDataElement.java
+index 2d32219..576e940 100644
+--- a/java/org/cef/network/CefPostDataElement.java
++++ b/java/org/cef/network/CefPostDataElement.java
+@@ -16,7 +16,7 @@ public abstract class CefPostDataElement {
+         PDE_TYPE_EMPTY,
+         PDE_TYPE_BYTES,
+         PDE_TYPE_FILE,
+-        PDF_TYPE_NUM_VALUES, // probably should be PDE_TYPE, but wrong in CEF too
++        PDE_TYPE_NUM_VALUES,
+     }
+ 
+     // This CTOR can't be called directly. Call method create() instead.
+diff --git a/java/tests/detailed/dialog/DevToolsDialog.java b/java/tests/detailed/dialog/DevToolsDialog.java
+index 07a6180..7aa6ebc 100644
+--- a/java/tests/detailed/dialog/DevToolsDialog.java
++++ b/java/tests/detailed/dialog/DevToolsDialog.java
+@@ -1,47 +1,47 @@
+-// Copyright (c) 2014 The Chromium Embedded Framework Authors. All rights
+-// reserved. Use of this source code is governed by a BSD-style license that
+-// can be found in the LICENSE file.
+-
+-package tests.detailed.dialog;
+-
+-import org.cef.browser.CefBrowser;
+-
+-import java.awt.BorderLayout;
+-import java.awt.Frame;
+-import java.awt.Point;
+-import java.awt.event.ComponentAdapter;
+-import java.awt.event.ComponentEvent;
+-
+-import javax.swing.JDialog;
+-
+-@SuppressWarnings("serial")
+-public class DevToolsDialog extends JDialog {
+-    private final CefBrowser browser_;
+-    public DevToolsDialog(Frame owner, String title, CefBrowser browser) {
+-        this(owner, title, browser, null);
+-    }
+-
+-    public DevToolsDialog(Frame owner, String title, CefBrowser browser, Point inspectAt) {
+-        super(owner, title, false);
+-        browser_ = browser;
+-
+-        setLayout(new BorderLayout());
+-        setSize(800, 600);
+-        setLocation(owner.getLocation().x + 20, owner.getLocation().y + 20);
+-
+-        browser.openDevTools(inspectAt);
+-
+-        addComponentListener(new ComponentAdapter() {
+-            @Override
+-            public void componentHidden(ComponentEvent e) {
+-                dispose();
+-            }
+-        });
+-    }
+-
+-    @Override
+-    public void dispose() {
+-        browser_.closeDevTools();
+-        super.dispose();
+-    }
+-}
++// // Copyright (c) 2014 The Chromium Embedded Framework Authors. All rights
++// // reserved. Use of this source code is governed by a BSD-style license that
++// // can be found in the LICENSE file.
++
++// package tests.detailed.dialog;
++
++// import org.cef.browser.CefBrowser;
++
++// import java.awt.BorderLayout;
++// import java.awt.Frame;
++// import java.awt.Point;
++// import java.awt.event.ComponentAdapter;
++// import java.awt.event.ComponentEvent;
++
++// import javax.swing.JDialog;
++
++// @SuppressWarnings("serial")
++// public class DevToolsDialog extends JDialog {
++//     private final CefBrowser browser_;
++//     public DevToolsDialog(Frame owner, String title, CefBrowser browser) {
++//         this(owner, title, browser, null);
++//     }
++
++//     public DevToolsDialog(Frame owner, String title, CefBrowser browser, Point inspectAt) {
++//         super(owner, title, false);
++//         browser_ = browser;
++
++//         setLayout(new BorderLayout());
++//         setSize(800, 600);
++//         setLocation(owner.getLocation().x + 20, owner.getLocation().y + 20);
++
++//         browser.openDevTools(inspectAt);
++
++//         addComponentListener(new ComponentAdapter() {
++//             @Override
++//             public void componentHidden(ComponentEvent e) {
++//                 dispose();
++//             }
++//         });
++//     }
++
++//     @Override
++//     public void dispose() {
++//         browser_.closeDevTools();
++//         super.dispose();
++//     }
++// }
+diff --git a/java/tests/detailed/handler/ClientSchemeHandler.java b/java/tests/detailed/handler/ClientSchemeHandler.java
+index 2ee156f..c3e5ecb 100644
+--- a/java/tests/detailed/handler/ClientSchemeHandler.java
++++ b/java/tests/detailed/handler/ClientSchemeHandler.java
+@@ -5,7 +5,9 @@
+ package tests.detailed.handler;
+ 
+ import org.cef.callback.CefCallback;
++import org.cef.callback.CefResourceReadCallback;
+ import org.cef.handler.CefResourceHandlerAdapter;
++import org.cef.misc.BoolRef;
+ import org.cef.misc.IntRef;
+ import org.cef.misc.StringRef;
+ import org.cef.network.CefRequest;
+@@ -33,7 +35,8 @@ public class ClientSchemeHandler extends CefResourceHandlerAdapter {
+     }
+ 
+     @Override
+-    public synchronized boolean processRequest(CefRequest request, CefCallback callback) {
++    public synchronized boolean open(
++            CefRequest request, BoolRef handleRequest, CefCallback callback) {
+         boolean handled = false;
+         String url = request.getURL();
+         if (url.indexOf("handler.html") != -1) {
+@@ -77,9 +80,10 @@ public class ClientSchemeHandler extends CefResourceHandlerAdapter {
+             }
+         }
+ 
++        // All requests are handled immediately
++        handleRequest.set(true);
++
+         if (handled) {
+-            // Indicate the headers are available.
+-            callback.Continue();
+             return true;
+         }
+ 
+@@ -97,8 +101,8 @@ public class ClientSchemeHandler extends CefResourceHandlerAdapter {
+     }
+ 
+     @Override
+-    public synchronized boolean readResponse(
+-            byte[] data_out, int bytes_to_read, IntRef bytes_read, CefCallback callback) {
++    public synchronized boolean read(byte[] data_out, int bytes_to_read, IntRef bytes_read,
++            CefResourceReadCallback callback) {
+         boolean has_data = false;
+ 
+         if (offset_ < data_.length) {
+diff --git a/java/tests/detailed/handler/ResourceHandler.java b/java/tests/detailed/handler/ResourceHandler.java
+index 4a36e0e..5bc5530 100644
+--- a/java/tests/detailed/handler/ResourceHandler.java
++++ b/java/tests/detailed/handler/ResourceHandler.java
+@@ -1,8 +1,10 @@
+ package tests.detailed.handler;
+ 
+ import org.cef.callback.CefCallback;
++import org.cef.callback.CefResourceReadCallback;
+ import org.cef.handler.CefLoadHandler;
+ import org.cef.handler.CefResourceHandlerAdapter;
++import org.cef.misc.BoolRef;
+ import org.cef.misc.IntRef;
+ import org.cef.misc.StringRef;
+ import org.cef.network.CefRequest;
+@@ -25,11 +27,11 @@ public class ResourceHandler extends CefResourceHandlerAdapter {
+             + "</html>");
+ 
+     @Override
+-    public boolean processRequest(CefRequest request, CefCallback callback) {
++    public boolean open(CefRequest request, BoolRef handleRequest, CefCallback callback) {
+         System.out.println("processRequest: " + request);
+ 
+         startPos = 0;
+-        callback.Continue();
++        handleRequest.set(true);
+         return true;
+     }
+ 
+@@ -44,8 +46,8 @@ public class ResourceHandler extends CefResourceHandlerAdapter {
+     }
+ 
+     @Override
+-    public boolean readResponse(
+-            byte[] data_out, int bytes_to_read, IntRef bytes_read, CefCallback callback) {
++    public boolean read(byte[] data_out, int bytes_to_read, IntRef bytes_read,
++            CefResourceReadCallback callback) {
+         int length = html.length();
+         if (startPos >= length) return false;
+ 
+diff --git a/java/tests/detailed/handler/ResourceSetErrorHandler.java b/java/tests/detailed/handler/ResourceSetErrorHandler.java
+index bc3dd12..005cb70 100644
+--- a/java/tests/detailed/handler/ResourceSetErrorHandler.java
++++ b/java/tests/detailed/handler/ResourceSetErrorHandler.java
+@@ -3,6 +3,7 @@ package tests.detailed.handler;
+ import org.cef.callback.CefCallback;
+ import org.cef.handler.CefLoadHandler.ErrorCode;
+ import org.cef.handler.CefResourceHandlerAdapter;
++import org.cef.misc.BoolRef;
+ import org.cef.misc.IntRef;
+ import org.cef.misc.StringRef;
+ import org.cef.network.CefRequest;
+@@ -10,9 +11,9 @@ import org.cef.network.CefResponse;
+ 
+ public class ResourceSetErrorHandler extends CefResourceHandlerAdapter {
+     @Override
+-    public boolean processRequest(CefRequest request, CefCallback callback) {
++    public boolean open(CefRequest request, BoolRef handleRequest, CefCallback callback) {
+         System.out.println("processRequest: " + request);
+-        callback.Continue();
++        handleRequest.set(true);
+         return true;
+     }
+ 
+diff --git a/java/tests/detailed/handler/SearchSchemeHandler.java b/java/tests/detailed/handler/SearchSchemeHandler.java
+index 8a5c80e..3f9b1e5 100644
+--- a/java/tests/detailed/handler/SearchSchemeHandler.java
++++ b/java/tests/detailed/handler/SearchSchemeHandler.java
+@@ -7,6 +7,7 @@ package tests.detailed.handler;
+ import org.cef.browser.CefBrowser;
+ import org.cef.callback.CefCallback;
+ import org.cef.handler.CefResourceHandlerAdapter;
++import org.cef.misc.BoolRef;
+ import org.cef.network.CefRequest;
+ 
+ /**
+@@ -26,7 +27,7 @@ public class SearchSchemeHandler extends CefResourceHandlerAdapter {
+     }
+ 
+     @Override
+-    public boolean processRequest(CefRequest request, CefCallback callback) {
++    public boolean open(CefRequest request, BoolRef handleRequest, CefCallback callback) {
+         // cut away "scheme://"
+         String requestUrl = request.getURL();
+         String newUrl = requestUrl.substring(scheme.length() + 3);
+@@ -43,6 +44,7 @@ public class SearchSchemeHandler extends CefResourceHandlerAdapter {
+             newRequest.setFirstPartyForCookies(newUrl);
+             browser_.loadRequest(newRequest);
+         }
++        handleRequest.set(true);
+         return false;
+     }
+ }
+diff --git a/java/tests/detailed/ui/MenuBar.java b/java/tests/detailed/ui/MenuBar.java
+index 0ed8bf1..29ecc66 100644
+--- a/java/tests/detailed/ui/MenuBar.java
++++ b/java/tests/detailed/ui/MenuBar.java
+@@ -22,8 +22,8 @@ import java.awt.Dimension;
+ import java.awt.FlowLayout;
+ import java.awt.event.ActionEvent;
+ import java.awt.event.ActionListener;
+-import java.awt.event.ComponentAdapter;
+-import java.awt.event.ComponentEvent;
++// import java.awt.event.ComponentAdapter;
++// import java.awt.event.ComponentEvent;
+ import java.awt.event.WindowEvent;
+ import java.awt.image.BufferedImage;
+ import java.io.File;
+@@ -52,7 +52,7 @@ import javax.swing.SwingUtilities;
+ import tests.detailed.BrowserFrame;
+ import tests.detailed.MainFrame;
+ import tests.detailed.dialog.CookieManagerDialog;
+-import tests.detailed.dialog.DevToolsDialog;
++// import tests.detailed.dialog.DevToolsDialog;
+ import tests.detailed.dialog.DownloadDialog;
+ import tests.detailed.dialog.SearchDialog;
+ import tests.detailed.dialog.ShowTextDialog;
+@@ -62,7 +62,7 @@ import tests.detailed.util.DataUri;
+ @SuppressWarnings("serial")
+ public class MenuBar extends JMenuBar {
+     class SaveAs implements CefStringVisitor {
+-        private PrintWriter fileWriter_;
++        private final PrintWriter fileWriter_;
+ 
+         public SaveAs(String fName) throws FileNotFoundException, UnsupportedEncodingException {
+             fileWriter_ = new PrintWriter(fName, "UTF-8");
+@@ -367,15 +367,7 @@ public class MenuBar extends JMenuBar {
+         showDevTools.addActionListener(new ActionListener() {
+             @Override
+             public void actionPerformed(ActionEvent e) {
+-                DevToolsDialog devToolsDlg = new DevToolsDialog(owner_, "DEV Tools", browser_);
+-                devToolsDlg.addComponentListener(new ComponentAdapter() {
+-                    @Override
+-                    public void componentHidden(ComponentEvent e) {
+-                        showDevTools.setEnabled(true);
+-                    }
+-                });
+-                devToolsDlg.setVisible(true);
+-                showDevTools.setEnabled(false);
++                browser.openDevTools();
+             }
+         });
+         testMenu.add(showDevTools);
+@@ -431,7 +423,9 @@ public class MenuBar extends JMenuBar {
+                 reparentButton.addActionListener(new ActionListener() {
+                     @Override
+                     public void actionPerformed(ActionEvent e) {
+-                        if (reparentPending_) return;
++                        if (reparentPending_) {
++                            return;
++                        }
+                         reparentPending_ = true;
+ 
+                         if (reparentButton.getText().equals("Reparent <")) {
+@@ -540,12 +534,16 @@ public class MenuBar extends JMenuBar {
+     }
+ 
+     public void addBookmark(String name, String URL) {
+-        if (bookmarkMenu_ == null) return;
++        if (bookmarkMenu_ == null) {
++            return;
++        }
+ 
+         // Test if the bookmark already exists. If yes, update URL
+         Component[] entries = bookmarkMenu_.getMenuComponents();
+         for (Component itemEntry : entries) {
+-            if (!(itemEntry instanceof JMenuItem)) continue;
++            if (!(itemEntry instanceof JMenuItem)) {
++                continue;
++            }
+ 
+             JMenuItem item = (JMenuItem) itemEntry;
+             if (item.getText().equals(name)) {
+diff --git a/native/CMakeLists.txt b/native/CMakeLists.txt
+index d14cbb3..17adcc4 100644
+--- a/native/CMakeLists.txt
++++ b/native/CMakeLists.txt
+@@ -62,6 +62,10 @@ set(JCEF_SRCS
+   CefCallback_N.h
+   CefRequestContext_N.cpp
+   CefRequestContext_N.h
++  CefResourceReadCallback_N.cpp
++  CefResourceReadCallback_N.h
++  CefResourceSkipCallback_N.cpp
++  CefResourceSkipCallback_N.h
+   CefResponse_N.cpp
+   CefResponse_N.h
+   CefSchemeRegistrar_N.cpp
+@@ -313,11 +317,6 @@ if(OS_MAC)
+   set(EXECUTABLE_NAME "${JCEF_APP_NAME}")
+   set(PRODUCT_NAME "${JCEF_APP_NAME}")
+ 
+-  if(USE_SANDBOX)
+-    # Logical target used to link the cef_sandbox library.
+-    ADD_LOGICAL_TARGET("cef_sandbox_lib" "${CEF_SANDBOX_LIB_DEBUG}" "${CEF_SANDBOX_LIB_RELEASE}")
+-  endif()
+-
+   # JCEF library target.
+   add_library(${JCEF_TARGET} SHARED ${JCEF_RESOURCES_SRCS} ${JCEF_SRCS})
+   SET_EXECUTABLE_TARGET_PROPERTIES(${JCEF_TARGET})
+@@ -402,9 +401,6 @@ if(OS_MAC)
+             # XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "YES"
+             # XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--deep"
+     )
+-    if(USE_SANDBOX)
+-      target_link_libraries(${_helper_target} cef_sandbox_lib)
+-    endif()
+ 
+     # Add the Helper as a dependency of the main executable target.
+     add_dependencies(${JCEF_TARGET} "${_helper_target}")
+@@ -439,6 +435,7 @@ if(OS_WINDOWS)
+   add_dependencies(${JCEF_TARGET} libcef_dll_wrapper ${JCEF_HELPER_TARGET})
+   target_link_libraries(${JCEF_TARGET} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${JNI_LIBRARIES})
+   target_include_directories(${JCEF_TARGET} PUBLIC ${JNI_INCLUDE_DIRS})
++  target_compile_options(${JCEF_TARGET} PRIVATE "-Wno-error")
+ 
+   # Compile flags specific to the JCEF library target.
+   # USING_JAVA          = Add the USING_JAVA define.
+diff --git a/native/CefBrowser_N.cpp b/native/CefBrowser_N.cpp
+index 0e5f811..db86732 100644
+--- a/native/CefBrowser_N.cpp
++++ b/native/CefBrowser_N.cpp
+@@ -1580,6 +1580,10 @@ Java_org_cef_browser_CefBrowser_1N_N_1RunFileDialog(JNIEnv* env,
+                             "org/cef/handler/CefDialogHandler$FileDialogMode",
+                             "FILE_DIALOG_OPEN_MULTIPLE")) {
+     mode = FILE_DIALOG_OPEN_MULTIPLE;
++  } else if (IsJNIEnumValue(env, jmode,
++        "org/cef/handler/CefDialogHandler$FileDialogMode",
++        "FILE_DIALOG_OPEN_FOLDER")) {
++    mode = FILE_DIALOG_OPEN_FOLDER;
+   } else if (IsJNIEnumValue(env, jmode,
+                             "org/cef/handler/CefDialogHandler$FileDialogMode",
+                             "FILE_DIALOG_SAVE")) {
+diff --git a/native/CefDragData_N.cpp b/native/CefDragData_N.cpp
+index cf7e6c2..f913208 100644
+--- a/native/CefDragData_N.cpp
++++ b/native/CefDragData_N.cpp
+@@ -190,6 +190,25 @@ Java_org_cef_callback_CefDragData_1N_N_1GetFileNames(JNIEnv* env,
+   return JNI_TRUE;
+ }
+ 
++JNIEXPORT jboolean JNICALL
++Java_org_cef_callback_CefDragData_1N_N_1GetFilePaths(JNIEnv* env,
++                                                     jobject obj,
++                                                     jlong self,
++                                                     jobject jfilePaths) {
++  CefRefPtr<CefDragData> dragData = GetSelf(self);
++  if (!dragData)
++    return JNI_FALSE;
++
++  std::vector<CefString> filePaths;
++  if (!dragData->GetFilePaths(filePaths))
++    return JNI_FALSE;
++
++  for (size_t i = 0; i < filePaths.size(); ++i) {
++    AddJNIStringToVector(env, jfilePaths, filePaths.at(i));
++  }
++  return JNI_TRUE;
++}
++
+ JNIEXPORT void JNICALL
+ Java_org_cef_callback_CefDragData_1N_N_1SetLinkURL(JNIEnv* env,
+                                                    jobject obj,
+diff --git a/native/CefPostDataElement_N.cpp b/native/CefPostDataElement_N.cpp
+index 63f4e69..414e7a5 100644
+--- a/native/CefPostDataElement_N.cpp
++++ b/native/CefPostDataElement_N.cpp
+@@ -99,7 +99,7 @@ Java_org_cef_network_CefPostDataElement_1N_N_1GetType(JNIEnv* env,
+     JNI_CASE(env, "org/cef/network/CefPostDataElement$Type", PDE_TYPE_FILE,
+              jtype);
+     JNI_CASE(env, "org/cef/network/CefPostDataElement$Type",
+-             PDF_TYPE_NUM_VALUES, jtype);
++             PDE_TYPE_NUM_VALUES, jtype);
+   }
+   return jtype;
+ }
+diff --git a/native/CefRequestContext_N.cpp b/native/CefRequestContext_N.cpp
+index 3f22cfd..db6b2dd 100644
+--- a/native/CefRequestContext_N.cpp
++++ b/native/CefRequestContext_N.cpp
+@@ -56,6 +56,104 @@ Java_org_cef_browser_CefRequestContext_1N_N_1IsGlobal(JNIEnv* env,
+   return context->IsGlobal() ? JNI_TRUE : JNI_FALSE;
+ }
+ 
++JNIEXPORT jboolean JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1HasPreference(JNIEnv* env,
++                                                           jobject obj,
++                                                           jstring jname) {
++  CefRefPtr<CefRequestContext> context =
++      GetCefFromJNIObject<CefRequestContext>(env, obj, "CefRequestContext");
++  if (!context.get())
++    return JNI_FALSE;
++
++  CefString name = GetJNIString(env, jname);
++  return context->HasPreference(name) ? JNI_TRUE : JNI_FALSE;
++}
++
++JNIEXPORT jobject JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1GetPreference(JNIEnv* env,
++                                                           jobject obj,
++                                                           jstring jname) {
++  CefRefPtr<CefRequestContext> context =
++      GetCefFromJNIObject<CefRequestContext>(env, obj, "CefRequestContext");
++  if (!context.get())
++    return nullptr;
++
++  CefString name = GetJNIString(env, jname);
++  CefRefPtr<CefValue> value = context->GetPreference(name);
++  if (!value)
++    return nullptr;
++
++  return NewJNIObjectFromCefValue(env, value);
++}
++
++JNIEXPORT jobject JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1GetAllPreferences(
++    JNIEnv* env,
++    jobject obj,
++    jboolean includeDefaults) {
++  CefRefPtr<CefRequestContext> context =
++      GetCefFromJNIObject<CefRequestContext>(env, obj, "CefRequestContext");
++  if (!context.get())
++    return nullptr;
++
++  CefRefPtr<CefDictionaryValue> value =
++      context->GetAllPreferences(includeDefaults == JNI_TRUE);
++  if (!value)
++    return nullptr;
++
++  jobject jmap = NewJNIHashMap(env);
++  CefDictionaryValue::KeyList keys;
++  value->GetKeys(keys);
++  for (const CefString& key : keys) {
++    jstring jkey = NewJNIString(env, key);
++    jobject jvalue = NewJNIObjectFromCefValue(env, value->GetValue(key));
++    JNI_CALL_VOID_METHOD(
++        env, jmap, "put",
++        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", jkey,
++        jvalue);
++  }
++  return jmap;
++}
++
++JNIEXPORT jboolean JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1CanSetPreference(JNIEnv* env,
++                                                              jobject obj,
++                                                              jstring jname) {
++  CefRefPtr<CefRequestContext> context =
++      GetCefFromJNIObject<CefRequestContext>(env, obj, "CefRequestContext");
++  if (!context.get())
++    return JNI_FALSE;
++
++  CefString name = GetJNIString(env, jname);
++  return context->CanSetPreference(name) ? JNI_TRUE : JNI_FALSE;
++}
++
++JNIEXPORT jstring JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1SetPreference(JNIEnv* env,
++                                                           jobject obj,
++                                                           jstring jname,
++                                                           jobject jvalue) {
++  if (!CefCurrentlyOn(TID_UI))
++    return NewJNIString(env, "called on invalid thread");
++
++  CefRefPtr<CefRequestContext> context =
++      GetCefFromJNIObject<CefRequestContext>(env, obj, "CefRequestContext");
++  if (!context.get())
++    return NewJNIString(env, "no request context");
++
++  CefString name = GetJNIString(env, jname);
++  CefRefPtr<CefValue> value = GetCefValueFromJNIObject(env, jvalue);
++  if (!value)
++    return NewJNIString(env, "no value to set");
++
++  CefString error;
++  bool result = context->SetPreference(name, value, error);
++  if (!result)
++    return NewJNIString(env, error);
++
++  return nullptr;
++}
++
+ JNIEXPORT void JNICALL
+ Java_org_cef_browser_CefRequestContext_1N_N_1CefRequestContext_1DTOR(
+     JNIEnv* env,
+diff --git a/native/context.cpp b/native/context.cpp
+index beb553f..ddb5c4e 100644
+--- a/native/context.cpp
++++ b/native/context.cpp
+@@ -109,6 +109,11 @@ CefSettings GetJNISettings(JNIEnv* env, jobject obj) {
+   }
+   GetJNIFieldInt(env, cls, obj, "remote_debugging_port",
+                  &settings.remote_debugging_port);
++  if (GetJNIFieldString(env, cls, obj, "chrome_policy_id", &tmp) &&
++                 !tmp.empty()) {
++               CefString(&settings.chrome_policy_id) = tmp;
++               tmp.clear();
++  }
+   GetJNIFieldInt(env, cls, obj, "uncaught_exception_stack_size",
+                  &settings.uncaught_exception_stack_size);
+   jobject obj_col = nullptr;
+diff --git a/native/dialog_handler.cpp b/native/dialog_handler.cpp
+index 883f675..20221b5 100644
+--- a/native/dialog_handler.cpp
++++ b/native/dialog_handler.cpp
+@@ -58,6 +58,8 @@ bool DialogHandler::OnFileDialog(
+                FILE_DIALOG_OPEN, jmode);
+       JNI_CASE(env, "org/cef/handler/CefDialogHandler$FileDialogMode",
+                FILE_DIALOG_OPEN_MULTIPLE, jmode);
++      JNI_CASE(env, "org/cef/handler/CefDialogHandler$FileDialogMode",
++                FILE_DIALOG_OPEN_FOLDER, jmode);
+       JNI_CASE(env, "org/cef/handler/CefDialogHandler$FileDialogMode",
+                FILE_DIALOG_SAVE, jmode);
+   }
+diff --git a/native/jni_scoped_helpers.cpp b/native/jni_scoped_helpers.cpp
+index b73fa58..23808da 100644
+--- a/native/jni_scoped_helpers.cpp
++++ b/native/jni_scoped_helpers.cpp
+@@ -112,6 +112,14 @@ jobject NewJNIIntRef(JNIEnv* env, int initValue) {
+   return jintRef.Release();
+ }
+ 
++jobject NewJNILongRef(JNIEnv* env, int64_t initValue) {
++  ScopedJNIObjectLocal jlongRef(env, "org/cef/misc/LongRef");
++  if (!jlongRef)
++    return nullptr;
++  SetJNILongRef(env, jlongRef, initValue);
++  return jlongRef.Release();
++}
++
+ jobject NewJNIStringRef(JNIEnv* env, const CefString& initValue) {
+   ScopedJNIObjectLocal jstringRef(env, "org/cef/misc/StringRef");
+   if (!jstringRef)
+@@ -433,6 +441,24 @@ ScopedJNICallback::ScopedJNICallback(JNIEnv* env, CefRefPtr<CefCallback> obj)
+                                    "org/cef/callback/CefCallback_N",
+                                    "CefCallback") {}
+ 
++ScopedJNIResourceReadCallback::ScopedJNIResourceReadCallback(
++                                    JNIEnv* env,
++                                    CefRefPtr<CefResourceReadCallback> obj)
++                                    : ScopedJNIObject<CefResourceReadCallback>(
++                                          env,
++                                          obj,
++                                          "org/cef/callback/CefResourceReadCallback_N",
++                                          "CefResourceReadCallback") {}
++                                
++ScopedJNIResourceSkipCallback::ScopedJNIResourceSkipCallback(
++                                    JNIEnv* env,
++                                    CefRefPtr<CefResourceSkipCallback> obj)
++                                    : ScopedJNIObject<CefResourceSkipCallback>(
++                                          env,
++                                          obj,
++                                          "org/cef/callback/CefResourceSkipCallback_N",
++                                          "CefResourceSkipCallback") {}
++
+ ScopedJNIBoolRef::ScopedJNIBoolRef(JNIEnv* env, bool value)
+     : ScopedJNIBase<jobject>(env) {
+   jhandle_ = NewJNIBoolRef(env, value);
+@@ -453,6 +479,16 @@ ScopedJNIIntRef::operator int() const {
+   return GetJNIIntRef(env_, jhandle_);
+ }
+ 
++ScopedJNILongRef::ScopedJNILongRef(JNIEnv* env, int64_t value)
++    : ScopedJNIBase<jobject>(env) {
++  jhandle_ = NewJNILongRef(env, value);
++  DCHECK(jhandle_);
++}
++
++ScopedJNILongRef::operator int64_t() const {
++  return GetJNILongRef(env_, jhandle_);
++}
++
+ ScopedJNIStringRef::ScopedJNIStringRef(JNIEnv* env, const CefString& value)
+     : ScopedJNIBase<jobject>(env) {
+   jhandle_ = NewJNIStringRef(env, value);
+diff --git a/native/jni_scoped_helpers.h b/native/jni_scoped_helpers.h
+index 9ad2809..3228abd 100644
+--- a/native/jni_scoped_helpers.h
++++ b/native/jni_scoped_helpers.h
+@@ -822,6 +822,26 @@ class ScopedJNICallback : public ScopedJNIObject<CefCallback> {
+   ScopedJNICallback(JNIEnv* env, CefRefPtr<CefCallback> obj = nullptr);
+ };
+ 
++// JNI CefResourceReadCallback object.
++class ScopedJNIResourceReadCallback
++    : public ScopedJNIObject<CefResourceReadCallback> {
++ public:
++  // If |obj| is nullptr the SetHandle method should be used.
++  ScopedJNIResourceReadCallback(
++      JNIEnv* env,
++      CefRefPtr<CefResourceReadCallback> obj = nullptr);
++};
++
++// JNI CefResourceSkipCallback object.
++class ScopedJNIResourceSkipCallback
++    : public ScopedJNIObject<CefResourceSkipCallback> {
++ public:
++  // If |obj| is nullptr the SetHandle method should be used.
++  ScopedJNIResourceSkipCallback(
++      JNIEnv* env,
++      CefRefPtr<CefResourceSkipCallback> obj = nullptr);
++};
++
+ // JNI BoolRef object.
+ class ScopedJNIBoolRef : public ScopedJNIBase<jobject> {
+  public:
+@@ -840,6 +860,15 @@ class ScopedJNIIntRef : public ScopedJNIBase<jobject> {
+   operator int() const;
+ };
+ 
++// JNI LongRef object.
++class ScopedJNILongRef : public ScopedJNIBase<jobject> {
++  public:
++   ScopedJNILongRef(JNIEnv* env, int64_t value);
++ 
++   // Implicit retrieval of the underlying value.
++   operator int64_t() const;
++ };
++
+ // JNI StringRef object.
+ class ScopedJNIStringRef : public ScopedJNIBase<jobject> {
+  public:
+diff --git a/native/jni_util.cpp b/native/jni_util.cpp
+index 9d94833..0b2fcfd 100644
+--- a/native/jni_util.cpp
++++ b/native/jni_util.cpp
+@@ -99,6 +99,12 @@ int GetJNIIntRef(JNIEnv* env, jobject jintRef) {
+   return intRefRes;
+ }
+ 
++int64_t GetJNILongRef(JNIEnv* env, jobject jlongRef) {
++  jlong longRefRes = -1;
++  JNI_CALL_METHOD(env, jlongRef, "get", "()J", Long, longRefRes);
++  return longRefRes;
++}
++
+ CefString GetJNIStringRef(JNIEnv* env, jobject jstringRef) {
+   ScopedJNIStringResult str(env);
+   JNI_CALL_METHOD(env, jstringRef, "get", "()Ljava/lang/String;", Object, str);
+@@ -114,6 +120,10 @@ void SetJNIIntRef(JNIEnv* env, jobject jintRef, int intValue) {
+   JNI_CALL_VOID_METHOD(env, jintRef, "set", "(I)V", intValue);
+ }
+ 
++void SetJNILongRef(JNIEnv* env, jobject jlongRef, int64_t longValue) {
++  JNI_CALL_VOID_METHOD(env, jlongRef, "set", "(J)V", longValue);
++}
++
+ void SetJNIStringRef(JNIEnv* env,
+                      jobject jstringRef,
+                      const CefString& stringValue) {
+@@ -270,6 +280,25 @@ void SetJNIStringMultiMap(JNIEnv* env,
+   }
+ }
+ 
++void* GetJNIByteBufferData(JNIEnv* env, jobject jbyteBuffer) {
++  if (!jbyteBuffer)
++    return nullptr;
++
++  void* data = nullptr;
++  jlong capacity = env->GetDirectBufferCapacity(jbyteBuffer);
++  if (capacity > 0) {
++    data = env->GetDirectBufferAddress(jbyteBuffer);
++  }
++  return data;
++}
++
++size_t GetJNIByteBufferLength(JNIEnv* env, jobject jbyteBuffer) {
++  if (!jbyteBuffer)
++    return 0;
++
++  return static_cast<size_t>(env->GetDirectBufferCapacity(jbyteBuffer));
++}
++
+ CefMessageRouterConfig GetJNIMessageRouterConfig(JNIEnv* env, jobject jConfig) {
+   CefMessageRouterConfig config;
+ 
+@@ -287,6 +316,127 @@ CefMessageRouterConfig GetJNIMessageRouterConfig(JNIEnv* env, jobject jConfig) {
+   return config;
+ }
+ 
++CefRefPtr<CefValue> GetCefValueFromJNIObject(JNIEnv* env, jobject obj) {
++  if (!obj)
++    return nullptr;
++
++  if (env->IsInstanceOf(obj, ScopedJNIClass(env, "java/lang/Boolean"))) {
++    return GetCefValueFromJNIBoolean(env, obj);
++  } else if (env->IsInstanceOf(obj, ScopedJNIClass(env, "java/lang/Integer"))) {
++    return GetCefValueFromJNIInteger(env, obj);
++  } else if (env->IsInstanceOf(obj, ScopedJNIClass(env, "java/lang/Double"))) {
++    return GetCefValueFromJNIDouble(env, obj);
++  } else if (env->IsInstanceOf(obj, ScopedJNIClass(env, "java/lang/String"))) {
++    return GetCefValueFromJNIString(env, obj);
++  } else if (env->IsInstanceOf(obj,
++                               ScopedJNIClass(env, "java/nio/ByteBuffer"))) {
++    return GetCefValueFromJNIByteBuffer(env, obj);
++  } else if (env->IsInstanceOf(obj, ScopedJNIClass(env, "java/util/Map"))) {
++    return GetCefValueFromJNIMap(env, obj);
++  } else if (env->IsInstanceOf(obj, ScopedJNIClass(env, "java/util/List"))) {
++    return GetCefValueFromJNIList(env, obj);
++  } else {
++    return nullptr;
++  }
++}
++
++CefRefPtr<CefValue> GetCefValueFromJNIBoolean(JNIEnv* env, const jobject& obj) {
++  CefRefPtr<CefValue> value = CefValue::Create();
++  value->SetBool(GetJNIBoolean(env, obj));
++  return value;
++}
++
++CefRefPtr<CefValue> GetCefValueFromJNIInteger(JNIEnv* env, const jobject& obj) {
++  CefRefPtr<CefValue> value = CefValue::Create();
++  value->SetInt(GetJNIInteger(env, obj));
++  return value;
++}
++
++CefRefPtr<CefValue> GetCefValueFromJNIDouble(JNIEnv* env, const jobject& obj) {
++  CefRefPtr<CefValue> value = CefValue::Create();
++  value->SetDouble(GetJNIDouble(env, obj));
++  return value;
++}
++
++CefRefPtr<CefValue> GetCefValueFromJNIString(JNIEnv* env, const jobject& obj) {
++  CefRefPtr<CefValue> value = CefValue::Create();
++  value->SetString(GetJNIString(env, static_cast<jstring>(obj)));
++  return value;
++}
++
++CefRefPtr<CefValue> GetCefValueFromJNIByteBuffer(JNIEnv* env,
++                                                 const jobject& obj) {
++  CefRefPtr<CefValue> value = CefValue::Create();
++  CefRefPtr<CefBinaryValue> binary = CefBinaryValue::Create(
++      GetJNIByteBufferData(env, obj), GetJNIByteBufferLength(env, obj));
++  value->SetBinary(binary);
++  return value;
++}
++
++CefRefPtr<CefValue> GetCefValueFromJNIMap(JNIEnv* env, const jobject& obj) {
++  CefRefPtr<CefDictionaryValue> dict = CefDictionaryValue::Create();
++
++  ScopedJNIObjectResult entrySet(env);
++  JNI_CALL_METHOD(env, obj, "entrySet", "()Ljava/util/Set;", Object, entrySet);
++
++  ScopedJNIObjectResult iterator(env);
++  JNI_CALL_METHOD(env, entrySet, "iterator", "()Ljava/util/Iterator;", Object,
++                  iterator);
++
++  jboolean hasNext = JNI_FALSE;
++  JNI_CALL_METHOD(env, iterator, "hasNext", "()Z", Boolean, hasNext);
++
++  while (hasNext == JNI_TRUE) {
++    ScopedJNIObjectResult next(env);
++    JNI_CALL_METHOD(env, iterator, "next", "()Ljava/lang/Object;", Object,
++                    next);
++
++    ScopedJNIObjectResult entryKey(env);
++    JNI_CALL_METHOD(env, next, "getKey", "()Ljava/lang/Object;", Object,
++                    entryKey);
++    CefString key = GetJNIString(env, static_cast<jstring>(entryKey.get()));
++
++    ScopedJNIObjectResult entryValue(env);
++    JNI_CALL_METHOD(env, next, "getValue", "()Ljava/lang/Object;", Object,
++                    entryValue);
++    jobject jvalue = entryValue.get();
++    CefRefPtr<CefValue> cef_value = GetCefValueFromJNIObject(env, jvalue);
++    dict->SetValue(key, cef_value);
++
++    JNI_CALL_METHOD(env, iterator, "hasNext", "()Z", Boolean, hasNext);
++  }
++
++  CefRefPtr<CefValue> value = CefValue::Create();
++  return value;
++}
++
++CefRefPtr<CefValue> GetCefValueFromJNIList(JNIEnv* env, const jobject& obj) {
++  CefRefPtr<CefListValue> list = CefListValue::Create();
++
++  ScopedJNIObjectResult iterator(env);
++  JNI_CALL_METHOD(env, obj, "iterator", "()Ljava/util/Iterator;", Object,
++                  iterator);
++
++  jboolean hasNext = JNI_FALSE;
++  JNI_CALL_METHOD(env, iterator, "hasNext", "()Z", Boolean, hasNext);
++
++  long index = 0;
++  while (hasNext == JNI_TRUE) {
++    ScopedJNIObjectResult next(env);
++    JNI_CALL_METHOD(env, iterator, "next", "()Ljava/lang/Object;", Object,
++                    next);
++    jobject jvalue = next.get();
++    CefRefPtr<CefValue> cef_value = GetCefValueFromJNIObject(env, jvalue);
++    list->SetValue(index, cef_value);
++    index++;
++    JNI_CALL_METHOD(env, iterator, "hasNext", "()Z", Boolean, hasNext);
++  }
++
++  CefRefPtr<CefValue> value = CefValue::Create();
++  value->SetList(list);
++  return value;
++}
++
+ jobject NewJNIErrorCode(JNIEnv* env, cef_errorcode_t errorCode) {
+   ScopedJNIObjectResult jerrorCode(env);
+   switch (errorCode) {
+@@ -519,8 +669,6 @@ jobject NewJNIErrorCode(JNIEnv* env, cef_errorcode_t errorCode) {
+                ERR_CERT_VALIDITY_TOO_LONG, jerrorCode);
+       JNI_CASE(env, "org/cef/handler/CefLoadHandler$ErrorCode",
+                ERR_CERTIFICATE_TRANSPARENCY_REQUIRED, jerrorCode);
+-      JNI_CASE(env, "org/cef/handler/CefLoadHandler$ErrorCode",
+-               ERR_CERT_SYMANTEC_LEGACY, jerrorCode);
+       JNI_CASE(env, "org/cef/handler/CefLoadHandler$ErrorCode",
+                ERR_CERT_KNOWN_INTERCEPTION_BLOCKED, jerrorCode);
+       JNI_CASE(env, "org/cef/handler/CefLoadHandler$ErrorCode", ERR_CERT_END,
+@@ -736,6 +884,162 @@ jobject NewJNIErrorCode(JNIEnv* env, cef_errorcode_t errorCode) {
+   return jerrorCode.Release();
+ }
+ 
++jobject NewJNIBoolean(JNIEnv* env, const bool value) {
++  ScopedJNIClass cls(env, "java/lang/Boolean");
++  if (!cls)
++    return nullptr;
++
++  jmethodID method =
++      env->GetStaticMethodID(cls, "valueOf", "(Z)Ljava/lang/Boolean;");
++  if (!method)
++    return nullptr;
++
++  return env->CallStaticObjectMethod(cls, method, value ? JNI_TRUE : JNI_FALSE);
++}
++
++jboolean GetJNIBoolean(JNIEnv* env, jobject obj) {
++  if (obj) {
++    jboolean value = JNI_FALSE;
++    JNI_CALL_METHOD(env, obj, "booleanValue", "()Z", Boolean, value);
++    return value;
++  }
++  return JNI_FALSE;
++}
++
++jobject NewJNIInteger(JNIEnv* env, const int value) {
++  ScopedJNIClass cls(env, "java/lang/Integer");
++  if (!cls)
++    return nullptr;
++
++  jmethodID method =
++      env->GetStaticMethodID(cls, "valueOf", "(I)Ljava/lang/Integer;");
++  if (!method)
++    return nullptr;
++
++  return env->CallStaticObjectMethod(cls, method, value);
++}
++
++jint GetJNIInteger(JNIEnv* env, jobject obj) {
++  if (obj) {
++    jint value = 0;
++    JNI_CALL_METHOD(env, obj, "intValue", "()I", Int, value);
++    return value;
++  }
++  return 0;
++}
++
++jobject NewJNIDouble(JNIEnv* env, const double value) {
++  ScopedJNIClass cls(env, "java/lang/Double");
++  if (!cls)
++    return nullptr;
++
++  jmethodID method =
++      env->GetStaticMethodID(cls, "valueOf", "(D)Ljava/lang/Double;");
++  if (!method)
++    return nullptr;
++
++  return env->CallStaticObjectMethod(cls, method, value);
++}
++
++jdouble GetJNIDouble(JNIEnv* env, jobject obj) {
++  if (obj) {
++    jdouble value = 0;
++    JNI_CALL_METHOD(env, obj, "doubleValue", "()D", Double, value);
++    return value;
++  }
++  return 0;
++}
++
++jobject NewJNIByteBuffer(JNIEnv* env, const void* data, size_t size) {
++  ScopedJNIClass cls(env, "java/nio/ByteBuffer");
++  if (!cls)
++    return nullptr;
++
++  jmethodID method =
++      env->GetStaticMethodID(cls, "wrap", "([B)Ljava/nio/ByteBuffer;");
++  if (!method)
++    return nullptr;
++
++  jbyteArray array = env->NewByteArray((jsize)size);
++  if (!array)
++    return nullptr;
++
++  env->SetByteArrayRegion(array, 0, (jsize)size,
++                          reinterpret_cast<const jbyte*>(data));
++  return env->CallStaticObjectMethod(cls, method, array);
++}
++
++jobject NewJNIHashMap(JNIEnv* env) {
++  ScopedJNIClass cls(env, "java/util/HashMap");
++  if (!cls)
++    return nullptr;
++
++  jmethodID method = env->GetMethodID(cls, "<init>", "()V");
++  if (!method)
++    return nullptr;
++
++  return env->NewObject(cls, method);
++}
++
++jobject NewJNIArrayList(JNIEnv* env) {
++  ScopedJNIClass cls(env, "java/util/ArrayList");
++  if (!cls)
++    return nullptr;
++
++  jmethodID method = env->GetMethodID(cls, "<init>", "()V");
++  if (!method)
++    return nullptr;
++
++  return env->NewObject(cls, method);
++}
++
++jobject NewJNIObjectFromCefValue(JNIEnv* env, const CefRefPtr<CefValue> value) {
++  switch (value->GetType()) {
++    case VTYPE_NULL:
++      return nullptr;
++    case VTYPE_BOOL:
++      return NewJNIBoolean(env, value->GetBool());
++    case VTYPE_INT:
++      return NewJNIInteger(env, value->GetInt());
++    case VTYPE_DOUBLE:
++      return NewJNIDouble(env, value->GetDouble());
++    case VTYPE_STRING:
++      return NewJNIString(env, value->GetString());
++    case VTYPE_BINARY:
++      return NewJNIByteBuffer(env, value->GetBinary()->GetRawData(),
++                              value->GetBinary()->GetSize());
++    case VTYPE_DICTIONARY: {
++      jobject jmap = NewJNIHashMap(env);
++      CefRefPtr<CefDictionaryValue> dict = value->GetDictionary();
++      CefDictionaryValue::KeyList keys;
++      dict->GetKeys(keys);
++      for (const CefString& key : keys) {
++        jstring jkey = NewJNIString(env, key);
++        jobject jvalue = NewJNIObjectFromCefValue(env, dict->GetValue(key));
++        JNI_CALL_VOID_METHOD(
++            env, jmap, "put",
++            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", jkey,
++            jvalue);
++      }
++      return jmap;
++    }
++    case VTYPE_LIST: {
++      jobject jlist = NewJNIArrayList(env);
++      CefRefPtr<CefListValue> list = value->GetList();
++      const size_t size = list->GetSize();
++      for (size_t i = 0; i < size; ++i) {
++        jobject jvalue = NewJNIObjectFromCefValue(env, list->GetValue(i));
++        JNI_CALL_VOID_METHOD(env, jlist, "add", "(Ljava/lang/Object;)Z",
++                             jvalue);
++      }
++      return jlist;
++    }
++    default:
++      NOTREACHED();
++      return nullptr;
++  }
++}
++
+ cef_errorcode_t GetJNIErrorCode(JNIEnv* env, jobject jerrorCode) {
+   cef_errorcode_t errorCode = ERR_NONE;
+ 
+diff --git a/native/jni_util.h b/native/jni_util.h
+index dd9ba18..6028427 100644
+--- a/native/jni_util.h
++++ b/native/jni_util.h
+@@ -39,11 +39,13 @@ jobject NewJNIObject(JNIEnv* env, const char* class_name, const char* sig, ...);
+ // Retrieve primitive reference values
+ bool GetJNIBoolRef(JNIEnv* env, jobject jboolRef);
+ int GetJNIIntRef(JNIEnv* env, jobject jintRef);
++int64_t GetJNILongRef(JNIEnv* env, jobject jlongRef);
+ CefString GetJNIStringRef(JNIEnv* env, jobject jstringRef);
+ 
+ // Set primitive reference values
+ void SetJNIBoolRef(JNIEnv* env, jobject jboolRef, bool boolValue);
+ void SetJNIIntRef(JNIEnv* env, jobject jintRef, int intValue);
++void SetJNILongRef(JNIEnv* env, jobject jlongRef, int64_t longValue);
+ void SetJNIStringRef(JNIEnv* env,
+                      jobject jstringRef,
+                      const CefString& initValue);
+@@ -87,12 +89,38 @@ void SetJNIStringMultiMap(JNIEnv* env,
+                           jobject jheaderMap,
+                           const std::multimap<CefString, CefString>& vals);
+ 
++void* GetJNIByteBufferData(JNIEnv* env, jobject jbyteBuffer);
++size_t GetJNIByteBufferLength(JNIEnv* env, jobject jbyteBuffer);
++
+ CefMessageRouterConfig GetJNIMessageRouterConfig(JNIEnv* env, jobject jConfig);
+ 
++CefRefPtr<CefValue> GetCefValueFromJNIObject(JNIEnv* env, jobject obj);
++CefRefPtr<CefValue> GetCefValueFromJNIBoolean(JNIEnv* env, const jobject& obj);
++CefRefPtr<CefValue> GetCefValueFromJNIInteger(JNIEnv* env, const jobject& obj);
++CefRefPtr<CefValue> GetCefValueFromJNIDouble(JNIEnv* env, const jobject& obj);
++CefRefPtr<CefValue> GetCefValueFromJNIString(JNIEnv* env, const jobject& obj);
++CefRefPtr<CefValue> GetCefValueFromJNIByteBuffer(JNIEnv* env,
++                                                 const jobject& obj);
++CefRefPtr<CefValue> GetCefValueFromJNIMap(JNIEnv* env, const jobject& obj);
++CefRefPtr<CefValue> GetCefValueFromJNIList(JNIEnv* env, const jobject& obj);
++
+ // Create a new JNI error code.
+ jobject NewJNIErrorCode(JNIEnv* env, cef_errorcode_t errorCode);
+ cef_errorcode_t GetJNIErrorCode(JNIEnv* env, jobject jerrorCode);
+ 
++jobject NewJNIBoolean(JNIEnv* env, const bool value);
++jobject NewJNIInteger(JNIEnv* env, const int value);
++jobject NewJNIDouble(JNIEnv* env, const double value);
++jobject NewJNIByteBuffer(JNIEnv* env, const void* data, size_t size);
++jobject NewJNIHashMap(JNIEnv* env);
++jobject NewJNIArrayList(JNIEnv* env);
++
++jobject NewJNIObjectFromCefValue(JNIEnv* env, const CefRefPtr<CefValue> value);
++
++jboolean GetJNIBoolean(JNIEnv* env, jobject jbool);
++jint GetJNIInteger(JNIEnv* env, jobject jint);
++jdouble GetJNIDouble(JNIEnv* env, jobject jdouble);
++
+ bool GetJNIFieldObject(JNIEnv* env,
+                        jclass cls,
+                        jobject obj,
+diff --git a/native/resource_handler.cpp b/native/resource_handler.cpp
+index 1c0d1c5..9b4dbfc 100644
+--- a/native/resource_handler.cpp
++++ b/native/resource_handler.cpp
+@@ -35,6 +35,35 @@ bool ResourceHandler::ProcessRequest(CefRefPtr<CefRequest> request,
+   return (jresult != JNI_FALSE);
+ }
+ 
++bool ResourceHandler::Open(CefRefPtr<CefRequest> request,
++  bool& handle_request,
++  CefRefPtr<CefCallback> callback) {
++ScopedJNIEnv env;
++if (!env)
++return false;
++
++ScopedJNIRequest jrequest(env, request);
++jrequest.SetTemporary();
++ScopedJNIBoolRef jhandleRequest(env, handle_request);
++ScopedJNICallback jcallback(env, callback);
++jboolean jresult = JNI_FALSE;
++
++JNI_CALL_METHOD(env, handle_, "open",
++"(Lorg/cef/network/CefRequest;Lorg/cef/misc/BoolRef;Lorg/cef/"
++"callback/CefCallback;)Z",
++Boolean, jresult, jrequest.get(), jhandleRequest.get(),
++jcallback.get());
++
++if (jresult == JNI_FALSE) {
++// If the Java method returns "false" the callback won't be used and
++// the reference can therefore be removed.
++jcallback.SetTemporary();
++}
++
++handle_request = jhandleRequest;
++
++return (jresult != JNI_FALSE);
++}
+ void ResourceHandler::GetResponseHeaders(CefRefPtr<CefResponse> response,
+                                          int64_t& response_length,
+                                          CefString& redirectUrl) {
+@@ -94,6 +123,79 @@ bool ResourceHandler::ReadResponse(void* data_out,
+   return result;
+ }
+ 
++
++bool ResourceHandler::Read(void* data_out,
++  int bytes_to_read,
++  int& bytes_read,
++  CefRefPtr<CefResourceReadCallback> callback) {
++ScopedJNIEnv env;
++if (!env)
++return false;
++
++ScopedJNIIntRef jbytesRead(env, bytes_read);
++jbyteArray jbytes = env->NewByteArray(bytes_to_read);
++ScopedJNIResourceReadCallback jcallback(env, callback);
++
++// This callback must retain a reference to the data_out buffer
++JNI_CALL_VOID_METHOD(env, jcallback.get(), "setBufferRefs", "(J[B)V",
++(jlong)data_out, jbytes);
++
++jboolean jresult = JNI_FALSE;
++
++JNI_CALL_METHOD(
++env, handle_, "read",
++"([BILorg/cef/misc/IntRef;Lorg/cef/callback/CefResourceReadCallback;)Z",
++Boolean, jresult, jbytes, bytes_to_read, jbytesRead.get(),
++jcallback.get());
++
++bytes_read = jbytesRead;
++
++bool result = (jresult != JNI_FALSE);
++if (!result || bytes_read > 0) {
++// The callback won't be used and the reference can therefore be removed.
++jcallback.SetTemporary();
++}
++
++if (bytes_read > 0) {
++jbyte* jbyte = env->GetByteArrayElements(jbytes, nullptr);
++if (jbyte) {
++memmove(data_out, jbyte,
++(bytes_read < bytes_to_read ? bytes_read : bytes_to_read));
++env->ReleaseByteArrayElements(jbytes, jbyte, JNI_ABORT);
++}
++}
++env->DeleteLocalRef(jbytes);
++
++return result;
++}
++
++bool ResourceHandler::Skip(int64_t bytes_to_skip,
++  int64_t& bytes_skipped,
++  CefRefPtr<CefResourceSkipCallback> callback) {
++ScopedJNIEnv env;
++if (!env)
++return false;
++
++ScopedJNILongRef jbytesSkipped(env, bytes_skipped);
++ScopedJNIResourceSkipCallback jcallback(env, callback);
++jboolean jresult = JNI_FALSE;
++
++JNI_CALL_METHOD(
++env, handle_, "skip",
++"(JLorg/cef/misc/LongRef;Lorg/cef/callback/CefResourceSkipCallback;)Z",
++Boolean, jresult, bytes_to_skip, jbytesSkipped.get(), jcallback.get());
++
++bytes_skipped = jbytesSkipped;
++
++bool result = (jresult != JNI_FALSE);
++if (!result || bytes_skipped > 0) {
++// The callback won't be used and the reference can therefore be removed.
++jcallback.SetTemporary();
++}
++
++return result;
++}
++
+ void ResourceHandler::Cancel() {
+   ScopedJNIEnv env;
+   if (!env)
+diff --git a/native/resource_handler.h b/native/resource_handler.h
+index bcc2f2c..0c5328c 100644
+--- a/native/resource_handler.h
++++ b/native/resource_handler.h
+@@ -20,6 +20,9 @@ class ResourceHandler : public CefResourceHandler {
+   // CefResourceHandler methods:
+   bool ProcessRequest(CefRefPtr<CefRequest> request,
+                       CefRefPtr<CefCallback> callback) override;
++  bool Open(CefRefPtr<CefRequest> request,
++                        bool& handle_request,
++                        CefRefPtr<CefCallback> callback) override;
+   void GetResponseHeaders(CefRefPtr<CefResponse> response,
+                           int64_t& response_length,
+                           CefString& redirectUrl) override;
+@@ -27,6 +30,13 @@ class ResourceHandler : public CefResourceHandler {
+                     int bytes_to_read,
+                     int& bytes_read,
+                     CefRefPtr<CefCallback> callback) override;
++  bool Read(void* data_out,
++                      int bytes_to_read,
++                      int& bytes_read,
++                      CefRefPtr<CefResourceReadCallback> callback) override;
++  bool Skip(int64_t bytes_to_skip,
++                      int64_t& bytes_skipped,
++                      CefRefPtr<CefResourceSkipCallback> callback) override;
+   void Cancel() override;
+ 
+  protected:
