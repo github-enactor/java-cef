@@ -348,6 +348,15 @@ if(OS_MAC)
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CEF_BINARY_DIR}/Chromium Embedded Framework.framework"
             "${JCEF_APP}/Contents/Frameworks/Chromium Embedded Framework.framework"
+    # CRITICAL: Helper apps look for libcef_sandbox.dylib at:
+    # "../../../Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib"
+    # Create the directory structure and copy ONLY the sandbox library (not entire framework).
+    # This saves ~500MB by avoiding duplication of the entire framework.
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CEF_TARGET_OUT_DIR}/Chromium Embedded Framework.framework/Libraries"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CEF_BINARY_DIR}/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib"
+            "${CEF_TARGET_OUT_DIR}/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib"
     # Copy the JCEF library into the main app bindle.
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CEF_TARGET_OUT_DIR}/${JCEF_TARGET_LIBRARY}"
@@ -435,7 +444,6 @@ if(OS_WINDOWS)
   add_dependencies(${JCEF_TARGET} libcef_dll_wrapper ${JCEF_HELPER_TARGET})
   target_link_libraries(${JCEF_TARGET} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${JNI_LIBRARIES})
   target_include_directories(${JCEF_TARGET} PUBLIC ${JNI_INCLUDE_DIRS})
-  target_compile_options(${JCEF_TARGET} PRIVATE "-Wno-error")
 
   # Compile flags specific to the JCEF library target.
   # USING_JAVA          = Add the USING_JAVA define.
