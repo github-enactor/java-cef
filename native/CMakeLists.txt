@@ -348,10 +348,9 @@ if(OS_MAC)
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CEF_BINARY_DIR}/Chromium Embedded Framework.framework"
             "${JCEF_APP}/Contents/Frameworks/Chromium Embedded Framework.framework"
-    # CRITICAL: Helper apps look for libcef_sandbox.dylib at:
+    # Helper apps look for libcef_sandbox.dylib at:
     # "../../../Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib"
     # Create the directory structure and copy ONLY the sandbox library (not entire framework).
-    # This saves ~500MB by avoiding duplication of the entire framework.
     COMMAND ${CMAKE_COMMAND} -E make_directory
             "${CEF_TARGET_OUT_DIR}/Chromium Embedded Framework.framework/Libraries"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
