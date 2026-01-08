@@ -62,6 +62,10 @@ set(JCEF_SRCS
   CefCallback_N.h
   CefRequestContext_N.cpp
   CefRequestContext_N.h
+  CefResourceReadCallback_N.cpp
+  CefResourceReadCallback_N.h
+  CefResourceSkipCallback_N.cpp
+  CefResourceSkipCallback_N.h
   CefResponse_N.cpp
   CefResponse_N.h
   CefSchemeRegistrar_N.cpp
@@ -313,11 +317,6 @@ if(OS_MAC)
   set(EXECUTABLE_NAME "${JCEF_APP_NAME}")
   set(PRODUCT_NAME "${JCEF_APP_NAME}")
 
-  if(USE_SANDBOX)
-    # Logical target used to link the cef_sandbox library.
-    ADD_LOGICAL_TARGET("cef_sandbox_lib" "${CEF_SANDBOX_LIB_DEBUG}" "${CEF_SANDBOX_LIB_RELEASE}")
-  endif()
-
   # JCEF library target.
   add_library(${JCEF_TARGET} SHARED ${JCEF_RESOURCES_SRCS} ${JCEF_SRCS})
   SET_EXECUTABLE_TARGET_PROPERTIES(${JCEF_TARGET})
@@ -349,6 +348,14 @@ if(OS_MAC)
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CEF_BINARY_DIR}/Chromium Embedded Framework.framework"
             "${JCEF_APP}/Contents/Frameworks/Chromium Embedded Framework.framework"
+    # Helper apps look for libcef_sandbox.dylib at:
+    # "../../../Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib"
+    # Create the directory structure and copy ONLY the sandbox library (not entire framework).
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CEF_TARGET_OUT_DIR}/Chromium Embedded Framework.framework/Libraries"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CEF_BINARY_DIR}/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib"
+            "${CEF_TARGET_OUT_DIR}/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib"
     # Copy the JCEF library into the main app bindle.
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CEF_TARGET_OUT_DIR}/${JCEF_TARGET_LIBRARY}"
@@ -402,9 +409,6 @@ if(OS_MAC)
             # XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "YES"
             # XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--deep"
     )
-    if(USE_SANDBOX)
-      target_link_libraries(${_helper_target} cef_sandbox_lib)
-    endif()
 
     # Add the Helper as a dependency of the main executable target.
     add_dependencies(${JCEF_TARGET} "${_helper_target}")
