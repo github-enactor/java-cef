@@ -29,7 +29,7 @@ public interface CefResourceHandler {
      * @param callback Callback to continue or cancel the request.
      * @return True to handle the request and call CefCallback.Continue() once the response header
      *         information is available.
-     * * @deprecated Use open() instead
+     * @deprecated Use open() instead
      */
     boolean processRequest(CefRequest request, CefCallback callback);
 
@@ -68,11 +68,11 @@ public interface CefResourceHandler {
      * @param bytesRead Number of bytes written to the buffer.
      * @param callback Callback to execute if data will be available asynchronously.
      * @return True if more data is or will be available.
-     * * @deprecated Use read() instead
+     * @deprecated Use read() instead
      */
     boolean readResponse(byte[] dataOut, int bytesToRead, IntRef bytesRead, CefCallback callback);
 
-        /**
+    /**
      * Read response data. If data is available immediately copy up to |bytesToRead| bytes into
      * |dataOut|, set |bytesRead| to the number of bytes copied, and return true. To read the data
      * at a later time store |dataOut|, set |bytesRead| to 0, return true and call the callback when
@@ -102,7 +102,6 @@ public interface CefResourceHandler {
      * @param callback Callback to execute if data will be skipped asynchronously.
      */
     boolean skip(long bytesToSkip, LongRef bytesSkipped, CefResourceSkipCallback callback);
-
 
     /**
      * Request processing has been canceled.

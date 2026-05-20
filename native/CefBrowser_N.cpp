@@ -1581,8 +1581,8 @@ Java_org_cef_browser_CefBrowser_1N_N_1RunFileDialog(JNIEnv* env,
                             "FILE_DIALOG_OPEN_MULTIPLE")) {
     mode = FILE_DIALOG_OPEN_MULTIPLE;
   } else if (IsJNIEnumValue(env, jmode,
-        "org/cef/handler/CefDialogHandler$FileDialogMode",
-        "FILE_DIALOG_OPEN_FOLDER")) {
+                            "org/cef/handler/CefDialogHandler$FileDialogMode",
+                            "FILE_DIALOG_OPEN_FOLDER")) {
     mode = FILE_DIALOG_OPEN_FOLDER;
   } else if (IsJNIEnumValue(env, jmode,
                             "org/cef/handler/CefDialogHandler$FileDialogMode",
