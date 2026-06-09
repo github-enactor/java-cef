@@ -862,12 +862,12 @@ class ScopedJNIIntRef : public ScopedJNIBase<jobject> {
 
 // JNI LongRef object.
 class ScopedJNILongRef : public ScopedJNIBase<jobject> {
-  public:
-   ScopedJNILongRef(JNIEnv* env, int64_t value);
- 
-   // Implicit retrieval of the underlying value.
-   operator int64_t() const;
- };
+ public:
+  ScopedJNILongRef(JNIEnv* env, int64_t value);
+
+  // Implicit retrieval of the underlying value.
+  operator int64_t() const;
+};
 
 // JNI StringRef object.
 class ScopedJNIStringRef : public ScopedJNIBase<jobject> {
