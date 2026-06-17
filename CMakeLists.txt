@@ -306,7 +306,12 @@ execute_process(
   RESULT_VARIABLE EXECUTE_RV
   )
 if(NOT EXECUTE_RV STREQUAL "0")
-  message(FATAL_ERROR "Execution failed with unexpected result: ${EXECUTE_RV}")
+  # clang-format is a code-FORMATTING tool, not required to compile jcef. Its
+  # download goes through the vendored gsutil (Python 2 only), which fails on a
+  # host without python2 — e.g. macOS, where Apple removed python2 and the build
+  # runs cmake under python3. Don't fail the whole build over an optional tool:
+  # warn and continue. (EDIAPT-1706 — macOS CEF build on jenkins1.)
+  message(WARNING "clang-format download failed (result ${EXECUTE_RV}); continuing without it (formatting-only tool, not required to build).")
 endif()
 
 
